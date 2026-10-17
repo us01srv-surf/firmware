@@ -16,6 +16,8 @@ public:
     struct WiFiCredential {
         String ssid;
         String pwd;
+        int ch;   // WiFi AP channel (1-13)
+        bool hid; // hide AP SSID from beacon
     };
     struct Credential {
         String user;
@@ -61,7 +63,7 @@ public:
     // Wifi
     Credential webUI = {"admin", "bruce"};
     std::vector<String> webUISessions = {}; // FIFO queue of session tokens
-    WiFiCredential wifiAp = {"BruceNet", "brucenet"};
+    WiFiCredential wifiAp = {"BruceNet", "brucenet", 6, false};
     std::map<String, String> wifi = {};
     std::set<String> evilWifiNames = {};
     String wifiMAC = ""; //@IncursioHack
@@ -159,6 +161,8 @@ public:
     // Wifi
     void setWebUICreds(const String &usr, const String &pwd);
     void setWifiApCreds(const String &ssid, const String &pwd);
+    void setWifiApChannel(int ch);
+    void setWifiApHidden(bool hidden);
     void setTerminalLog(bool value);
     void addWifiCredential(const String &ssid, const String &pwd);
     void addQrCodeEntry(const String &menuName, const String &content);

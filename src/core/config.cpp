@@ -43,6 +43,8 @@ JsonDocument BruceConfig::toJson() const {
     JsonObject _wifiAp = setting["wifiAp"].to<JsonObject>();
     _wifiAp["ssid"] = wifiAp.ssid;
     _wifiAp["pwd"] = wifiAp.pwd;
+    _wifiAp["ch"] = wifiAp.ch;
+    _wifiAp["hid"] = wifiAp.hid;
     setting["wifiMAC"] = wifiMAC; //@IncursioHack
     setting["TerminalLog"] = TerminalLog;
 
@@ -280,6 +282,9 @@ void BruceConfig::fromFile(bool checkFS) {
         JsonObject wifiApObj = setting["wifiAp"].as<JsonObject>();
         wifiAp.ssid = wifiApObj["ssid"].as<String>();
         wifiAp.pwd = wifiApObj["pwd"].as<String>();
+        if (!wifiApObj["ch"].isNull()) wifiAp.ch = wifiApObj["ch"].as<int>();
+        if (wifiAp.ch < 1 || wifiAp.ch > 13) wifiAp.ch = 6;
+        if (!wifiApObj["hid"].isNull()) wifiAp.hid = wifiApObj["hid"].as<bool>();
     } else {
         count++;
         log_e("Fail");
@@ -647,6 +652,16 @@ void BruceConfig::setWebUICreds(const String &usr, const String &pwd) {
 void BruceConfig::setWifiApCreds(const String &ssid, const String &pwd) {
     wifiAp.ssid = ssid;
     wifiAp.pwd = pwd;
+    saveFile();
+}
+
+void BruceConfig::setWifiApChannel(int ch) {
+    wifiAp.ch = (ch >= 1 && ch <= 13) ? ch : 6;
+    saveFile();
+}
+
+void BruceConfig::setWifiApHidden(bool hidden) {
+    wifiAp.hid = hidden;
     saveFile();
 }
 

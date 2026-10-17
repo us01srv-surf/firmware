@@ -142,7 +142,9 @@ bool _connectToWifiNetwork(const String &ssid, const String &pwd) {
 bool _setupAP() {
     IPAddress AP_GATEWAY(172, 0, 0, 1);
     WiFi.softAPConfig(AP_GATEWAY, AP_GATEWAY, IPAddress(255, 255, 255, 0));
-    WiFi.softAP(bruceConfig.wifiAp.ssid, bruceConfig.wifiAp.pwd, 6, 0, 4, false);
+    WiFi.softAP(
+        bruceConfig.wifiAp.ssid, bruceConfig.wifiAp.pwd, bruceConfig.wifiAp.ch, 0, 4, bruceConfig.wifiAp.hid
+    );
     wifiIP = WiFi.softAPIP().toString(); // update global var
     Serial.println("IP: " + wifiIP);
     wifiConnected = true;

@@ -1325,13 +1325,42 @@ void setWifiApPasswordMenu() {
 }
 
 /*********************************************************************
+**  Function: setWifiApChannelMenu
+**  Handles Menu to set the WiFi AP Channel (1-13, 2.4GHz)
+**********************************************************************/
+void setWifiApChannelMenu() {
+    String chStr = num_keyboard(String(bruceConfig.wifiAp.ch), 2, "WiFi AP Channel (1-13):");
+    if (chStr != "\x1B") {
+        int chVal = chStr.toInt();
+        if (chVal >= 1 && chVal <= 13) bruceConfig.setWifiApChannel(chVal);
+        else displayError("Invalid channel value (1 to 13)", true);
+    }
+}
+
+/*********************************************************************
+**  Function: setWifiApVisibilityMenu
+**  Handles Menu to show or hide the WiFi AP SSID in beacons
+**********************************************************************/
+void setWifiApVisibilityMenu() {
+    options = {
+        {"Visible", [&]() { bruceConfig.setWifiApHidden(false); }},
+        {"Hidden",  [&]() { bruceConfig.setWifiApHidden(true); }},
+    };
+    addOptionToMainMenu();
+
+    loopOptions(options, bruceConfig.wifiAp.hid ? 1 : 0);
+}
+
+/*********************************************************************
 **  Function: setWifiApCredsMenu
 **  Handles Menu to configure WiFi AP Credentials
 **********************************************************************/
 void setWifiApCredsMenu() {
     options = {
-        {"SSID",     setWifiApSsidMenu    },
-        {"Password", setWifiApPasswordMenu},
+        {"SSID",       setWifiApSsidMenu      },
+        {"Password",   setWifiApPasswordMenu  },
+        {"Channel",    setWifiApChannelMenu   },
+        {"Visibility", setWifiApVisibilityMenu},
     };
     addOptionToMainMenu();
 
