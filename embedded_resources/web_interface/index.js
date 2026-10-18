@@ -1144,6 +1144,68 @@ $(".act-save-credential").addEventListener("click", async (e) => {
   alert("Credentials saved successfully!");
 });
 
+function setApsetStatus(message, isError) {
+  let el = $("#apset-status");
+  el.textContent = message;
+  el.classList.toggle("error", !!isError);
+  el.classList.remove("hidden");
+}
+
+async function openSettingsNew() {
+  Dialog.show("settings-new");
+  $("#apset-status").classList.add("hidden");
+  Dialog.loading.show("Loading AP settings...");
+  try {
+    let info = JSON.parse(await requestGet("/apset"));
+    $("#ap-ssid").value = info.ssid || "";
+    $("#ap-pwd").value = info.pwd || "";
+    $("#ap-ch").value = info.ch || 6;
+    $("#ap-hid").value = info.hid ? "1" : "0";
+  } catch (error) {
+    setApsetStatus("Could not load current settings: " + error.message, true);
+  } finally {
+    Dialog.loading.hide();
+  }
+}
+
+$(".act-save-apset").addEventListener("click", async (e) => {
+  let ssid = $("#ap-ssid").value.trim();
+  let pwd = $("#ap-pwd").value;
+  let ch = parseInt($("#ap-ch").value, 10);
+  if (!ssid) {
+    setApsetStatus("AP Name (SSID) cannot be empty.", true);
+    return;
+  }
+  if (!(ch >= 1 && ch <= 13)) {
+    setApsetStatus("Channel must be a number between 1 and 13.", true);
+    return;
+  }
+
+  Dialog.loading.show("Saving AP settings...");
+  try {
+    let info = JSON.parse(
+      await requestPost("/apset", {
+        ssid: ssid,
+        pwd: pwd,
+        ch: ch,
+        hid: $("#ap-hid").value === "1" ? 1 : 0,
+      }),
+    );
+    if (!info.ok) throw new Error("device rejected the settings");
+    setApsetStatus(
+      "Saved. AP is restarting — reconnect to your network in a few seconds.",
+      false,
+    );
+  } catch (error) {
+    setApsetStatus(
+      "Save failed (" + error.message + ") — settings were NOT applied.",
+      true,
+    );
+  } finally {
+    Dialog.loading.hide();
+  }
+});
+
 $(".act-save-edit-file").addEventListener("click", async (e) => {
   await saveEditorFile();
 });
@@ -1682,6 +1744,10 @@ window.addEventListener("popstate", (event) => {
   }
 
   await fetchFiles(initialDrive, initialPath);
+
+  // Navigator starts right after login, skipping the file browser landing.
+  // Deep-linked file editor (?edit=) still opens on top and wins.
+  if (!editFile) openNavigator();
 
   // If there's an edit file parameter, open the file editor
   if (editFile) {

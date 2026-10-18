@@ -528,24 +528,118 @@ svg > path {
   }
 }
 
+/* --- touch support (used on phones; harmless with a mouse) --- */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-action,
+.icon-action,
+.act-browse,
+.nav,
+select,
+input,
+button {
+  touch-action: manipulation;
+}
+.btn-action:active:not(:disabled) {
+  background-color: var(--color);
+  color: var(--background);
+}
+.icon-action:active {
+  background-color: var(--color);
+}
+.container .content .table tbody tr:active {
+  background-color: var(--light-color);
+}
+.dialog.navigator .navigator-canvas .nav:active {
+  color: var(--background);
+  background: var(--color);
+}
+.dialog.navigator .navigator-canvas .nav:active svg path,
+.dialog.navigator .navigator-canvas .nav:active svg line {
+  color: var(--background);
+  fill: var(--background);
+}
+.dialog.navigator .navigator-canvas .nav:active svg circle {
+  stroke: var(--background);
+}
+.dialog.navigator .navigator-canvas .nav.nav-ok:active::before {
+  background-color: var(--background);
+}
+
+/* bottom action bar, shown on small screens only */
+.mobile-nav {
+  display: none;
+}
+
+/* selects inside dialogs, same look as inputs */
+.dialog .dialog-body select {
+  display: block;
+  min-width: 300px;
+  width: 100%;
+  border: 1px solid var(--color);
+  background-color: var(--background);
+  outline: 0px;
+  padding: 2px 4px;
+}
+.dialog .dialog-body select option {
+  background-color: var(--background);
+  color: var(--color);
+}
+
+/* status text for the Settings New dialog */
+.apset-status {
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid var(--color);
+  background-color: color-mix(in srgb, var(--color) 15%, transparent);
+  text-align: center;
+}
+.apset-status.error {
+  border-color: orange;
+  color: orange;
+  background-color: rgba(255, 165, 0, 0.15);
+}
+
 @media (max-width: 600px) {
   body {
     padding: 6px;
+    /* room for the fixed bottom nav */
+    padding-bottom: 64px;
+    font-size: 14px;
   }
   .container .header {
     flex-wrap: wrap;
   }
   .container .header .title {
     flex: 1 1 100%;
-    border-bottom: 1px solid var(--color);
+    padding: 12px;
   }
+  /* header actions move into the bottom nav on small screens */
   .left-part,
   .right-part {
-    text-align: center;
+    display: none;
   }
-  .container .header button {
-    width: auto;
-    min-width: 90px;
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    gap: 6px;
+    padding: 6px;
+    background-color: var(--background);
+    border-top: 1px solid var(--color);
+  }
+  .mobile-nav .btn-action {
+    flex: 1;
+    min-height: 44px;
+    padding: 4px 2px;
+    font-size: 12px;
+    white-space: nowrap;
   }
   .container .free-space {
     flex-direction: column;
@@ -554,12 +648,104 @@ svg > path {
     width: 100%;
     border-right: 0;
     border-bottom: 1px solid var(--color);
+    padding: 12px 10px;
+    min-height: 44px;
   }
   .container .free-space .block-space:last-child {
     border-bottom: 0;
   }
-  .dialog .dialog-body input {
+  .container .action-content {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .container .action-content .breadcrumb {
+    flex: 1;
     min-width: 0;
+  }
+  .current-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .icon-action {
+    width: 40px;
+    height: 40px;
+  }
+  .container .content .table {
+    font-size: 13px;
+  }
+  .container .content .table thead tr th {
+    font-size: 13px;
+    padding: 5px 4px;
+  }
+  .container .content .table tbody tr td {
+    padding: 6px 4px;
+    height: 44px;
+  }
+  .container .content .table .col-action {
+    width: 168px;
+  }
+  .container .content .table .col-size {
+    width: 80px;
+  }
+  .dialog {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+  .dialog .dialog-body input,
+  .dialog .dialog-body select {
+    min-width: 0;
+    /* 16px also stops iOS Safari from auto-zooming on focus */
+    font-size: 16px;
+    padding: 10px 8px;
+    min-height: 44px;
+  }
+  .dialog .dialog-footer .btn-action {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 0;
+  }
+  .dialog .dialog-footer .btn-action + .btn-action {
+    margin-top: 8px;
+  }
+  /* editor is fullscreen with a fixed-height body — keep its footer in one row */
+  .dialog.editor .dialog-footer {
+    display: flex;
+    gap: 8px;
+  }
+  .dialog.editor .dialog-footer .btn-action {
+    flex: 1;
+    margin-top: 0;
+  }
+  .dialog.settings .dialog-body .btn-action {
+    padding: 12px 8px;
+    min-height: 44px;
+  }
+  .dialog.navigator .dialog-head {
+    flex-wrap: wrap;
+  }
+  .dialog.navigator .dialog-head select {
+    font-size: 12px;
+    min-height: 40px;
+    padding: 4px;
+  }
+  .dialog.navigator .navigator-canvas .nav {
+    width: 46px;
+    height: 46px;
+  }
+  #force-reload,
+  #refresh-folder {
+    width: 40px;
+    height: 40px;
+  }
+  #force-reload svg,
+  #refresh-folder svg {
+    width: 22px;
+    height: 22px;
   }
   .dialog.upload .upload-loading {
     width: 100%;
@@ -574,11 +760,5 @@ svg > path {
   .loading-area .text {
     min-width: 0;
     max-width: 90vw;
-  }
-  .container .content .table .col-action {
-    width: 96px;
-  }
-  .container .content .table .col-size {
-    width: 64px;
   }
 }

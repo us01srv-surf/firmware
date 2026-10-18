@@ -737,6 +737,62 @@ void configureWebServer() {
             }
         }
     });
+
+    // Wi-Fi AP configuration
+    server->on("/apset", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (checkUserWebAuth(request)) {
+            char response_body[256];
+            snprintf(
+                response_body,
+                sizeof(response_body),
+                "{\"ssid\":\"%s\",\"pwd\":\"%s\",\"ch\":%d,\"hid\":%s}",
+                bruceConfig.wifiAp.ssid.c_str(),
+                bruceConfig.wifiAp.pwd.c_str(),
+                bruceConfig.wifiAp.ch,
+                bruceConfig.wifiAp.hid ? "true" : "false"
+            );
+            request->send(200, "application/json", response_body);
+        }
+    });
+    server->on("/apset", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (checkUserWebAuth(request)) {
+            if (
+                !request->hasArg("ssid") || !request->hasArg("pwd") || !request->hasArg("ch") ||
+                !request->hasArg("hid")
+            ) {
+                request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing args\"}");
+                return;
+            }
+            String ssid = request->arg("ssid");
+            if (ssid.isEmpty()) {
+                request->send(400, "application/json", "{\"ok\":false,\"error\":\"ssid required\"}");
+                return;
+            }
+            String pwd = request->arg("pwd");
+            int ch = request->arg("ch").toInt();
+            if (ch < 1) ch = 1;
+            if (ch > 13) ch = 13;
+            bool hid = request->arg("hid").toInt() != 0;
+            bruceConfig.setWifiApCreds(ssid, pwd);
+            bruceConfig.setWifiApChannel(ch);
+            bruceConfig.setWifiApHidden(hid);
+            request->send(200, "application/json", "{\"ok\":true}");
+            // Defer AP restart ~1.5s so the HTTP response reaches the client before the connection drops
+            xTaskCreate(
+                [](void *) {
+                    vTaskDelay(pdMS_TO_TICKS(1500));
+                    WiFi.mode(WIFI_AP);
+                    _setupAP();
+                    vTaskDelete(NULL);
+                },
+                "apset_restart",
+                4096,
+                NULL,
+                1,
+                NULL
+            );
+        }
+    });
     server->begin();
     Serial.println("Webserver started");
 }

@@ -31,6 +31,18 @@
           </button>
         </div>
       </div>
+      <nav class="mobile-nav" aria-label="Main menu">
+        <button class="btn-action act-oinput" data-action="serial">
+          Serial Cmd
+        </button>
+        <button class="btn-action" onclick="openNavigator()">Navigator</button>
+        <button class="btn-action" onclick="Dialog.show('settings')">
+          Settings
+        </button>
+        <button class="btn-action" onclick="window.location.href = '/logout'">
+          Log Out
+        </button>
+      </nav>
       <div class="free-space">
         <span
           class="btn-action act-browse block-space free-sd"
@@ -329,6 +341,9 @@
       <div class="dialog settings hidden">
         <div class="dialog-head">Settings</div>
         <div class="dialog-body">
+          <button class="btn-action" onclick="openSettingsNew()">
+            Settings New
+          </button>
           <button
             class="btn-action act-cred"
             onclick="Dialog.show('credential')"
@@ -340,6 +355,51 @@
         </div>
         <div class="dialog-footer">
           <button class="btn-action act-dialog-close act-escape">Close</button>
+        </div>
+      </div>
+      <div class="dialog settings-new hidden">
+        <div class="dialog-head">Settings New — WiFi AP</div>
+        <div class="dialog-body">
+          <label for="ap-ssid" class="oinput-label">AP Name (SSID)</label>
+          <input
+            type="text"
+            id="ap-ssid"
+            autocomplete="off"
+            autocapitalize="off"
+            style="margin-bottom: 10px"
+          />
+          <label for="ap-pwd" class="oinput-label">Password</label>
+          <input
+            type="password"
+            id="ap-pwd"
+            autocomplete="new-password"
+            style="margin-bottom: 10px"
+          />
+          <label for="ap-ch" class="oinput-label">Channel (1–13)</label>
+          <input
+            type="number"
+            id="ap-ch"
+            min="1"
+            max="13"
+            step="1"
+            inputmode="numeric"
+            style="margin-bottom: 10px"
+          />
+          <label for="ap-hid" class="oinput-label">Visibility</label>
+          <select id="ap-hid">
+            <option value="0">Visible</option>
+            <option value="1">Hidden</option>
+          </select>
+          <div id="apset-status" class="apset-status hidden"></div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn-action btn-default act-save-apset">Save</button>
+          <button
+            class="btn-action act-escape"
+            onclick="Dialog.show('settings')"
+          >
+            Close
+          </button>
         </div>
       </div>
       <div class="dialog navigator-shortcut hidden">
