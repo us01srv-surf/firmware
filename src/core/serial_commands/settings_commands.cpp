@@ -78,6 +78,8 @@ uint32_t settingsCallback(cmd *c) {
             setting_value.substring(setting_value.indexOf(",") + 1)
         );
     }
+    if (setting_name == "wifiApCh") bruceConfig.setWifiApChannel(setting_value.toInt());
+    if (setting_name == "wifiApHid") bruceConfig.setWifiApHidden(setting_value.toInt());
     if (setting_name == "wifi") {
         bruceConfig.addWifiCredential(
             setting_value.substring(0, setting_value.indexOf(",")),
