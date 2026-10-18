@@ -47,6 +47,23 @@ uint32_t settingsCallback(cmd *c) {
         }
     }
 
+    // wifiApCh/wifiApHid live inside the wifiAp object, not top-level JSON keys;
+    // handle before the whitelist check below (same pattern as bruceConfigPins)
+    if (setting_name == "wifiApCh" || setting_name == "wifiApHid") {
+        if (setting_value.length() == 0) {
+            // read path: report current value
+        } else if (setting_name == "wifiApCh") {
+            bruceConfig.setWifiApChannel(setting_value.toInt());
+        } else {
+            bruceConfig.setWifiApHidden(setting_value.toInt());
+        }
+        serialDevice->println(
+            setting_name + " = " +
+            (setting_name == "wifiApCh" ? String(bruceConfig.wifiAp.ch) : String(bruceConfig.wifiAp.hid))
+        );
+        return true;
+    }
+
     if (setting[setting_name].isNull()) {
         serialDevice->println("Invalid field name: " + setting_name);
         return false;
@@ -78,8 +95,6 @@ uint32_t settingsCallback(cmd *c) {
             setting_value.substring(setting_value.indexOf(",") + 1)
         );
     }
-    if (setting_name == "wifiApCh") bruceConfig.setWifiApChannel(setting_value.toInt());
-    if (setting_name == "wifiApHid") bruceConfig.setWifiApHidden(setting_value.toInt());
     if (setting_name == "wifi") {
         bruceConfig.addWifiCredential(
             setting_value.substring(0, setting_value.indexOf(",")),
