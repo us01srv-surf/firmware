@@ -1196,6 +1196,10 @@ static void sendDeauthNow() {
 
 //===== SETUP =====//
 void sniffer_setup() {
+    // backToMenu() (run after every serial command) leaves this flag set, and
+    // loopOptions() never consumes it for the main menu, so without this clear
+    // the loop below breaks on its very first iteration and exits silently.
+    returnToMenu = false;
     // Capture the WebUI state before anything else: when it is up, keep it
     // (the browser's only connection) instead of tearing it down
     snifferWebUiActive = (server != nullptr && isWebUIActive);
