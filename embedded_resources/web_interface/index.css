@@ -908,3 +908,205 @@ button {
     max-width: 90vw;
   }
 }
+
+/* --- Live capture dialog (WebSocket frame stream) --- */
+/* header keeps room for the connection-state pill; the body is a flex column
+   so the log scrolls on its own while status/counters/tools stay put */
+.dialog.live {
+  display: flex;
+  flex-direction: column;
+}
+.dialog.live .dialog-head {
+  justify-content: space-between;
+}
+.live-state {
+  font-size: 11px;
+  font-weight: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid var(--color);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.live-state.s-live {
+  background-color: var(--color);
+  color: var(--background);
+}
+.live-state.s-connecting {
+  opacity: 0.6;
+}
+.live-state.s-reconnecting {
+  border-color: orange;
+  color: orange;
+  background-color: rgba(255, 165, 0, 0.12);
+}
+.live-state.s-unauthorized {
+  border-color: orange;
+  color: var(--background);
+  background-color: orange;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .live-state.s-reconnecting {
+    animation: live-blink 1.2s ease-in-out infinite;
+  }
+}
+@keyframes live-blink {
+  50% {
+    opacity: 0.4;
+  }
+}
+.dialog.live .dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+.live-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  border: 1px solid var(--light-color);
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chip.on {
+  background-color: var(--color);
+  border-color: var(--color);
+  color: var(--background);
+}
+.chip-ssid {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.live-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.live-counters b {
+  font-weight: bold;
+}
+.live-log {
+  flex: 1 1 auto;
+  min-height: 90px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--light-color);
+  background-color: rgba(0, 0, 0, 0.25);
+  padding: 4px;
+}
+.live-log:empty::before {
+  content: "Waiting for frames...";
+  display: block;
+  padding: 10px 6px;
+  opacity: 0.5;
+}
+.log-row {
+  border: 1px solid var(--light-color);
+  border-left: 3px solid var(--light-color);
+  padding: 6px 8px;
+  min-height: 44px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.log-row.wifi {
+  border-left-color: var(--color);
+}
+.log-row:last-child {
+  margin-bottom: 0;
+}
+.log-row.open {
+  background-color: var(--light-color);
+}
+@media (hover: hover) {
+  .log-row:hover {
+    background-color: var(--light-color);
+  }
+}
+.log-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.badge {
+  border: 1px solid currentColor;
+  padding: 1px 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.badge.k-deauth {
+  border-color: orange;
+  color: orange;
+  background-color: rgba(255, 165, 0, 0.15);
+}
+.badge.k-ble {
+  border-style: dashed;
+}
+.log-meta,
+.log-time {
+  font-size: 11px;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+.log-time {
+  margin-left: auto;
+}
+.log-sub {
+  font-size: 12px;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.log-detail {
+  display: none;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--light-color);
+  font-size: 11px;
+  line-height: 1.45;
+  word-break: break-all;
+  opacity: 0.75;
+}
+.log-row.open .log-detail {
+  display: block;
+}
+.live-tools {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.live-tools .btn-action {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 4px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* desktop entry: header button stays narrow so the header never overflows */
+.container .header .btn-narrow {
+  width: auto;
+}
+@media (min-width: 601px) {
+  .dialog.live {
+    width: 100%;
+    max-width: 720px;
+    height: calc(100vh - 40px);
+    max-height: 620px;
+  }
+}

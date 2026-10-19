@@ -24,6 +24,12 @@
           <button class="btn-action act-navigation" onclick="openNavigator()">
             Navigator
           </button>
+          <button
+            class="btn-action act-live-open btn-narrow"
+            onclick="openLive()"
+          >
+            Live
+          </button>
         </div>
         <div class="right-part">
           <button class="btn-action" onclick="Dialog.show('settings')">
@@ -38,6 +44,9 @@
       <div class="launcher" id="launcher" aria-label="Main menu">
         <button class="btn-action tile" onclick="openNavigator()">
           Navigator<span class="tile-hint">Remote control</span>
+        </button>
+        <button class="btn-action tile act-live-open" onclick="openLive()">
+          Live<span class="tile-hint">Frame capture</span>
         </button>
         <button class="btn-action tile" onclick="Dialog.show('settings')">
           Settings<span class="tile-hint">WiFi AP &amp; reboot</span>
@@ -767,6 +776,47 @@
           <button class="btn-action act-run-edit-file" title="ALT + ENTER">
             Run
           </button>
+          <button class="btn-action act-dialog-close act-escape">Close</button>
+        </div>
+      </div>
+      <div class="dialog live hidden">
+        <div class="dialog-head">
+          <span>Live Capture</span>
+          <span class="live-state s-connecting" id="live-state">connecting</span>
+        </div>
+        <div class="dialog-body">
+          <div class="live-status">
+            <span class="chip" id="live-sniffer">sniffer off</span>
+            <span class="chip" id="live-mode">idle</span>
+            <span class="chip" id="live-chan">ch &ndash;</span>
+            <span class="chip chip-ssid" id="live-ssid">&ndash;</span>
+          </div>
+          <div class="live-counters">
+            <span>wifi <b id="live-n-wifi">0</b></span>
+            <span>ble <b id="live-n-ble">0</b></span>
+            <span>dropped <b id="live-n-drop">0</b></span>
+          </div>
+          <div
+            class="live-log"
+            id="live-log"
+            role="log"
+            aria-label="Captured frames"
+          ></div>
+          <div class="live-tools">
+            <button
+              class="btn-action btn-default"
+              id="live-save-pcap"
+              disabled
+            >
+              Save PCAP
+            </button>
+            <button class="btn-action" id="live-save-json" disabled>
+              Save JSON
+            </button>
+            <button class="btn-action" id="live-clear">Clear</button>
+          </div>
+        </div>
+        <div class="dialog-footer">
           <button class="btn-action act-dialog-close act-escape">Close</button>
         </div>
       </div>

@@ -41,6 +41,9 @@ const Dialog = {
     dialogs.forEach((dialog) => {
       if (!dialog.classList.contains("hidden")) dialog.classList.add("hidden");
     });
+    // any dialog switch/close hides the Live panel — drop its socket too so
+    // nothing keeps streaming (and retrying) in the background
+    liveStop();
     if (show) {
       bg.classList.remove("hidden");
     } else {
@@ -1645,6 +1648,425 @@ $(".oinput-text-submit").addEventListener("keyup", function (e) {
     const btn = dialog.querySelector(".btn-default");
     if (btn) btn.click();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Live capture: WebSocket stream of wifi/ble frames into a full-screen dialog.
+// Contract: ws(s)://<host>/ws — text JSON {t:status|wifi|ble|pong}, browser
+// sends {"cmd":"ping"} on connect and every 10s (15s of silence = dead link).
+// ---------------------------------------------------------------------------
+const LIVE_CAP = 500; // newest rows kept in the log; older ones are dropped
+const LIVE_BACKOFF = [1000, 2000, 5000]; // reconnect delays, last one repeats
+const LIVE = {
+  ws: null,
+  state: "",
+  attempt: 0,
+  blocked: false, // server rejected us (unauthorized) — stop retrying
+  reconnectTimer: null,
+  pingTimer: null,
+  watchdogTimer: null,
+  lastIn: 0,
+  status: { sniffer: false, mode: "idle", chan: 0, ssid: "" },
+  wifi: [], // every frame since open/clear -> PCAP source (log cap does not apply)
+  ble: [], // every ad since open/clear -> JSON source
+  wifiCount: 0,
+  bleCount: 0,
+  dropped: 0, // rows evicted from the log by the cap
+  pending: [],
+  raf: 0,
+};
+
+function liveWsUrl() {
+  return (
+    (window.location.protocol === "https:" ? "wss://" : "ws://") +
+    window.location.host +
+    "/ws"
+  );
+}
+
+function liveSetState(state) {
+  LIVE.state = state;
+  const el = $("#live-state");
+  if (!el) return;
+  el.className = "live-state s-" + state;
+  el.textContent = state;
+}
+
+function liveClearTimers() {
+  if (LIVE.reconnectTimer) clearTimeout(LIVE.reconnectTimer);
+  if (LIVE.pingTimer) clearInterval(LIVE.pingTimer);
+  if (LIVE.watchdogTimer) clearInterval(LIVE.watchdogTimer);
+  LIVE.reconnectTimer = LIVE.pingTimer = LIVE.watchdogTimer = null;
+}
+
+function liveSend(ws, obj) {
+  try {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  } catch (e) {
+    /* socket already going down */
+  }
+}
+
+function openLive() {
+  const dialog = $(".dialog.live");
+  if (dialog && !dialog.classList.contains("hidden")) return;
+  Dialog.show("live");
+  liveStart();
+}
+
+// called by Dialog._bg on every show/hide — no-op when nothing is running
+function liveStop() {
+  liveClearTimers();
+  const ws = LIVE.ws;
+  LIVE.ws = null; // null it first so the close handler does not reschedule
+  if (ws) {
+    try {
+      ws.close();
+    } catch (e) {}
+  }
+}
+
+function liveStart() {
+  if (LIVE.ws) return;
+  liveClearTimers();
+  LIVE.blocked = false;
+  LIVE.attempt = 0;
+  liveSetState("connecting");
+  liveConnect();
+}
+
+function liveScheduleReconnect() {
+  if (LIVE.reconnectTimer || LIVE.blocked) return;
+  const delay = LIVE_BACKOFF[Math.min(LIVE.attempt, LIVE_BACKOFF.length - 1)];
+  LIVE.attempt++;
+  liveSetState("reconnecting");
+  LIVE.reconnectTimer = setTimeout(() => {
+    LIVE.reconnectTimer = null;
+    if (LIVE.blocked) return;
+    liveConnect();
+  }, delay);
+}
+
+function liveConnect() {
+  liveClearTimers();
+  let ws;
+  try {
+    ws = new WebSocket(liveWsUrl());
+  } catch (e) {
+    liveScheduleReconnect();
+    return;
+  }
+  LIVE.ws = ws;
+  let gotMsg = false; // device said anything
+  let gotErr = false; // connection never made it (network/endpoint down)
+  let localClose = false; // we closed it ourselves (stop / watchdog)
+
+  ws.addEventListener("open", () => {
+    if (LIVE.ws !== ws) return;
+    LIVE.lastIn = Date.now();
+    liveSetState("live");
+    liveSend(ws, { cmd: "ping" });
+    LIVE.pingTimer = setInterval(() => liveSend(ws, { cmd: "ping" }), 10000);
+    LIVE.watchdogTimer = setInterval(() => {
+      if (Date.now() - LIVE.lastIn > 15000) {
+        localClose = true; // dead link: treat like a drop and reconnect
+        try {
+          ws.close();
+        } catch (e) {}
+      }
+    }, 2000);
+  });
+  ws.addEventListener("message", (ev) => {
+    if (LIVE.ws !== ws) return;
+    LIVE.lastIn = Date.now();
+    gotMsg = true;
+    LIVE.attempt = 0; // link is healthy again — restart the backoff ladder
+    liveHandle(ev.data);
+  });
+  ws.addEventListener("error", () => {
+    gotErr = true;
+  });
+  ws.addEventListener("close", () => {
+    if (LIVE.ws !== ws) return; // liveStop() already ran, or a newer socket took over
+    LIVE.ws = null;
+    liveClearTimers();
+    if (LIVE.blocked) return;
+    if (!gotMsg && !gotErr && !localClose) {
+      // handshake succeeded and the device hung up before the first frame:
+      // that is the auth rejection described in the contract — do not hammer it
+      LIVE.blocked = true;
+      liveSetState("unauthorized");
+      return;
+    }
+    liveScheduleReconnect();
+  });
+}
+
+function liveHandle(raw) {
+  let m;
+  try {
+    m = JSON.parse(raw);
+  } catch (e) {
+    return;
+  }
+  if (!m || typeof m !== "object") return;
+  if (m.t === "status") {
+    LIVE.status = m;
+    liveRenderStatus();
+  } else if (m.t === "wifi") {
+    liveOnWifi(m);
+  } else if (m.t === "ble") {
+    liveOnBle(m);
+  }
+  // {t:"pong"} needs no handling beyond refreshing lastIn above
+}
+
+function liveRenderStatus() {
+  const s = LIVE.status;
+  const sn = $("#live-sniffer");
+  if (sn) {
+    sn.textContent = s.sniffer ? "sniffer on" : "sniffer off";
+    sn.classList.toggle("on", !!s.sniffer);
+  }
+  const md = $("#live-mode");
+  if (md) md.textContent = s.mode || "idle";
+  const ch = $("#live-chan");
+  if (ch) ch.textContent = s.chan ? "ch " + s.chan : "ch \u2013";
+  const ss = $("#live-ssid");
+  if (ss) {
+    ss.textContent = s.ssid || "\u2013";
+    ss.title = s.ssid || "";
+  }
+}
+
+function liveOnWifi(m) {
+  const bytes = hexToBytes(m.frame);
+  LIVE.wifi.push({ ts: Number(m.ts) || Date.now(), bytes: bytes });
+  LIVE.wifiCount++;
+  const kind = String(m.kind || "raw");
+  const cls = kind.replace(/[^a-z0-9]/gi, "");
+  const chan = m.chan === undefined || m.chan === null ? "\u2013" : m.chan;
+  const len = m.len === undefined || m.len === null ? bytes.length : m.len;
+  liveQueue(
+    '<div class="log-row wifi">' +
+      '<div class="log-top">' +
+      '<span class="badge k-' +
+      cls +
+      '">' +
+      escHtml(kind) +
+      "</span>" +
+      '<span class="log-meta">ch ' +
+      escHtml(String(chan)) +
+      " &middot; " +
+      escHtml(String(len)) +
+      ' B</span><span class="log-time">' +
+      liveClock(m.ts) +
+      "</span></div>" +
+      '<div class="log-sub"><b>' +
+      escHtml(String(m.bssid || "")) +
+      "</b> " +
+      escHtml(String(m.ssid || "")) +
+      "</div>" +
+      '<div class="log-detail">' +
+      escHtml(String(m.frame || "")) +
+      "</div></div>",
+  );
+}
+
+function liveOnBle(m) {
+  LIVE.ble.push(m); // keep the message as-is: Save JSON writes this array
+  LIVE.bleCount++;
+  const chan = m.chan ? m.chan : "\u2013";
+  const rssi = m.rssi === undefined || m.rssi === null ? "\u2013" : m.rssi;
+  liveQueue(
+    '<div class="log-row ble">' +
+      '<div class="log-top">' +
+      '<span class="badge k-ble">ble</span>' +
+      '<span class="log-meta">' +
+      escHtml(String(rssi)) +
+      " dBm &middot; ch " +
+      escHtml(String(chan)) +
+      '</span><span class="log-time">' +
+      liveClock(m.ts) +
+      "</span></div>" +
+      '<div class="log-sub"><b>' +
+      escHtml(String(m.addr || "")) +
+      "</b> " +
+      escHtml(String(m.name || "")) +
+      "</div>" +
+      '<div class="log-detail">' +
+      escHtml(String(m.data || "")) +
+      "</div></div>",
+  );
+}
+
+// rows are batched per animation frame: one DOM write for however many
+// messages arrived together, one scroll measurement, then the 500-row trim
+function liveQueue(html) {
+  LIVE.pending.push(html);
+  if (!LIVE.raf) LIVE.raf = requestAnimationFrame(liveFlushRows);
+}
+
+function liveFlushRows() {
+  LIVE.raf = 0;
+  const log = $("#live-log");
+  if (!log || LIVE.pending.length === 0) {
+    liveCounters();
+    return;
+  }
+  const pinned = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  log.insertAdjacentHTML("beforeend", LIVE.pending.join(""));
+  LIVE.pending.length = 0;
+  while (log.childElementCount > LIVE_CAP) {
+    log.removeChild(log.firstElementChild);
+    LIVE.dropped++;
+  }
+  if (pinned) log.scrollTop = log.scrollHeight;
+  liveCounters();
+}
+
+function liveCounters() {
+  const w = $("#live-n-wifi"),
+    b = $("#live-n-ble"),
+    d = $("#live-n-drop");
+  if (w) w.textContent = LIVE.wifiCount;
+  if (b) b.textContent = LIVE.bleCount;
+  if (d) d.textContent = LIVE.dropped;
+  const bp = $("#live-save-pcap"),
+    bj = $("#live-save-json");
+  if (bp) bp.disabled = LIVE.wifi.length === 0;
+  if (bj) bj.disabled = LIVE.ble.length === 0;
+}
+
+function liveClear() {
+  LIVE.wifi.length = 0;
+  LIVE.ble.length = 0;
+  LIVE.wifiCount = 0;
+  LIVE.bleCount = 0;
+  LIVE.dropped = 0;
+  LIVE.pending.length = 0;
+  const log = $("#live-log");
+  if (log) log.innerHTML = "";
+  liveCounters();
+}
+
+function hexToBytes(hex) {
+  if (typeof hex !== "string") return new Uint8Array(0);
+  const out = new Uint8Array(hex.length >> 1);
+  for (let i = 0; i < out.length; i++) {
+    const b = parseInt(hex.substr(i * 2, 2), 16);
+    out[i] = isNaN(b) ? 0 : b;
+  }
+  return out;
+}
+
+// standard libpcap: 24-byte global header, then one 16-byte record per frame
+function buildPcap() {
+  const frames = LIVE.wifi;
+  let total = 24;
+  for (let i = 0; i < frames.length; i++) total += 16 + frames[i].bytes.length;
+  const out = new Uint8Array(total);
+  const dv = new DataView(out.buffer);
+  dv.setUint32(0, 0xa1b2c3d4, true); // magic, usec resolution, little endian
+  dv.setUint16(4, 2, true); // version major
+  dv.setUint16(6, 4, true); // version minor
+  dv.setInt32(8, 0, true); // thiszone
+  dv.setUint32(12, 0, true); // sigfigs
+  dv.setUint32(16, 65535, true); // snaplen
+  dv.setUint32(20, 105, true); // network: LINKTYPE_IEEE802_11
+  let o = 24;
+  for (let i = 0; i < frames.length; i++) {
+    const f = frames[i];
+    dv.setUint32(o, Math.floor(f.ts / 1000), true); // ts_sec
+    dv.setUint32(o + 4, (f.ts % 1000) * 1000, true); // ts_usec
+    dv.setUint32(o + 8, f.bytes.length, true); // incl_len
+    dv.setUint32(o + 12, f.bytes.length, true); // orig_len
+    out.set(f.bytes, o + 16);
+    o += 16 + f.bytes.length;
+  }
+  return out;
+}
+
+function liveStamp() {
+  const d = new Date();
+  const p = (n) => (n < 10 ? "0" : "") + n;
+  return (
+    d.getFullYear() +
+    p(d.getMonth() + 1) +
+    p(d.getDate()) +
+    "-" +
+    p(d.getHours()) +
+    p(d.getMinutes()) +
+    p(d.getSeconds())
+  );
+}
+
+function liveDownload(name, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function liveSavePcap() {
+  if (LIVE.wifi.length === 0) return;
+  liveDownload(
+    "capture_" + liveStamp() + ".pcap",
+    new Blob([buildPcap()], { type: "application/vnd.tcpdump.pcap" }),
+  );
+}
+
+function liveSaveJson() {
+  if (LIVE.ble.length === 0) return;
+  liveDownload(
+    "ble_" + liveStamp() + ".json",
+    new Blob([JSON.stringify(LIVE.ble, null, 2)], {
+      type: "application/json",
+    }),
+  );
+}
+
+function escHtml(s) {
+  return s.replace(/[&<>"]/g, (c) =>
+    c === "&"
+      ? "&amp;"
+      : c === "<"
+        ? "&lt;"
+        : c === ">"
+          ? "&gt;"
+          : "&quot;",
+  );
+}
+
+// ts is milliseconds — epoch on a synced device, uptime otherwise
+function liveClock(ts) {
+  const t = Number(ts) || 0;
+  if (t > 1e12) {
+    const d = new Date(t);
+    const p = (n) => (n < 10 ? "0" : "") + n;
+    return (
+      p(d.getHours()) +
+      ":" +
+      p(d.getMinutes()) +
+      ":" +
+      p(d.getSeconds()) +
+      "." +
+      ("00" + d.getMilliseconds()).slice(-3)
+    );
+  }
+  return (t / 1000).toFixed(1) + "s";
+}
+
+$("#live-save-pcap").addEventListener("click", liveSavePcap);
+$("#live-save-json").addEventListener("click", liveSaveJson);
+$("#live-clear").addEventListener("click", liveClear);
+$("#live-log").addEventListener("click", (e) => {
+  const row = e.target.closest(".log-row");
+  if (row) row.classList.toggle("open");
 });
 
 // Handle browser back/forward navigation
