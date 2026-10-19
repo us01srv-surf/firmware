@@ -7,6 +7,7 @@
 #include "core/settings.h"
 #include "core/utils.h"
 #include "core/wifi/wifi_mac.h"
+#include "core/wifi/webInterface.h"
 #include "esp_wifi.h"
 #include "modules/ble/ble_common.h"
 #include <esp_event.h>
@@ -148,6 +149,8 @@ bool _setupAP() {
     wifiIP = WiFi.softAPIP().toString(); // update global var
     Serial.println("IP: " + wifiIP);
     wifiConnected = true;
+    // webUI must survive AP restart / wifi off-on; lwip listener dies with WIFI_OFF
+    if (server) { server->end(); server->begin(); }
     return true;
 }
 
@@ -391,6 +394,8 @@ bool wifiConnecttoKnownNet(void) {
         if (timezoneTaskHandle == NULL) {
             xTaskCreate(updateTimezoneTask, "updateTimezone", 4096, NULL, 1, &timezoneTaskHandle);
         }
+        // webUI must survive wifi off-on; lwip listener dies with WIFI_OFF
+        if (server) { server->end(); server->begin(); }
     }
     return result;
 }
