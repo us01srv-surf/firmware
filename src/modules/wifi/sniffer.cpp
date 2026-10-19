@@ -94,6 +94,11 @@ portMUX_TYPE handshakeReadyMux = portMUX_INITIALIZER_UNLOCKED;
 std::set<uint64_t> handshakeBeaconLogged;
 std::map<uint64_t, HandshakeTracker> perApHandshakeTracker;
 
+// True when the WebUI was already running at sniffer_setup(): its AP + server
+// are then kept alive (phone connection must survive), so entry/exit skips the
+// BruceSniffer AP, esp_wifi_start/stop and wifiDisconnect.
+static bool snifferWebUiActive = false;
+
 // --- 4-way handshake frame buffer ---
 // Buffer M1, M2, and M3 in memory; flush all 4 frames when M4 arrives.
 constexpr size_t EAPOL_BUF_SIZE = 256;
@@ -781,6 +786,32 @@ static String currentModeString() {
     }
 }
 
+static String lowerHex(const uint8_t *data, size_t len) {
+    static const char digits[] = "0123456789abcdef";
+    String out;
+    out.reserve(len * 2);
+    for (size_t i = 0; i < len; i++) {
+        out += digits[data[i] >> 4];
+        out += digits[data[i] & 0x0F];
+    }
+    return out;
+}
+
+// keeps a value JSON-safe (AP/ESSID strings are user-controlled)
+static String jsonSafe(const char *s) {
+    String out = "";
+    for (size_t i = 0; s && s[i] != '\0'; i++) {
+        char c = s[i];
+        out += (c < 0x20 || c > 0x7E || c == '"' || c == '\\') ? ' ' : c;
+    }
+    return out;
+}
+
+// Publishes the {"t":"status",...} object (start/stop/channel change).
+static void pushSnifferStatus(bool active) {
+    wsSetSnifferState(active, active ? currentModeString() : "idle", all_wifi_channels[ch]);
+}
+
 static bool ensureSnifferBackend() {
     if (!fileMutex) { fileMutex = xSemaphoreCreateMutexStatic(&fileMutexBuffer); }
     if (!handshakeMutex) { handshakeMutex = xSemaphoreCreateMutexStatic(&handshakeMutexBuffer); }
@@ -826,6 +857,36 @@ static void snifferWriterTask(void *param) {
     SnifferQueueItem item;
     while (true) {
         if (xQueueReceive(snifferQueue, &item, portMAX_DELAY) == pdTRUE) {
+            // Stream to the WebUI browser before the packet copy is released.
+            // frame = the exact raw_len payload bytes the pcap writer stores.
+            if (item.packet && wsClientConnected()) {
+                const char *kind =
+                    item.isHandshakeFrame ? "eapol"
+                    : item.isDeauthFrame  ? "deauth"
+                    : item.isBeacon       ? "beacon"
+                                           : "raw";
+                char mac[18];
+                snprintf(
+                    mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", item.bssid[0], item.bssid[1],
+                    item.bssid[2], item.bssid[3], item.bssid[4], item.bssid[5]
+                );
+                String json = "{\"t\":\"wifi\",\"ts\":";
+                json += String((uint32_t)(item.ts_sec * 1000ULL + item.ts_usec / 1000ULL));
+                json += ",\"chan\":";
+                json += String((int)all_wifi_channels[ch]);
+                json += ",\"kind\":\"";
+                json += kind;
+                json += "\",\"bssid\":\"";
+                json += mac;
+                json += "\",\"ssid\":\"";
+                json += jsonSafe(item.ssid);
+                json += "\",\"len\":";
+                json += String((int)item.raw_len);
+                json += ",\"frame\":\"";
+                json += lowerHex(item.packet->payload, item.raw_len);
+                json += "\"}";
+                wsBroadcastJson(json);
+            }
             if (item.saveRaw) { handleRawWrite(item); }
             if (item.saveHandshake) { handleHandshakeWrite(item); }
             if (item.saveDeauth) { handleDeauthWrite(item); }
@@ -1135,8 +1196,13 @@ static void sendDeauthNow() {
 
 //===== SETUP =====//
 void sniffer_setup() {
-    // Stop WebUI before setting WiFi mode for sniffer
-    cleanlyStopWebUiForWiFiFeature();
+    // Capture the WebUI state before anything else: when it is up, keep it
+    // (the browser's only connection) instead of tearing it down
+    snifferWebUiActive = (server != nullptr && isWebUIActive);
+    if (!snifferWebUiActive) {
+        // Stop WebUI before setting WiFi mode for sniffer
+        cleanlyStopWebUiForWiFiFeature();
+    }
 
     FS *Fs;
     int redraw = true;
@@ -1182,28 +1248,47 @@ void sniffer_setup() {
     /* setup wifi */
     ensureWifiPlatform();
     nvs_flash_init();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-    wifi_config_t wifi_config;
-    strlcpy((char *)wifi_config.ap.ssid, "BruceSniffer", sizeof(wifi_config.ap.ssid));
-    strlcpy((char *)wifi_config.ap.password, "brucenet", sizeof(wifi_config.ap.password));
-    wifi_config.ap.ssid_len = strlen("BruceSniffer");
-    wifi_config.ap.channel = 1;                   // Channel
-    wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK; // auth mode
-    wifi_config.ap.ssid_hidden = 1;               // 1 to hidden SSID, 0 to visivle
-    wifi_config.ap.max_connection = 2;            // Max connections
-    wifi_config.ap.beacon_interval = 100;         // beacon interval in ms
+    if (snifferWebUiActive) {
+        // WiFi already runs the WebUI AP: stay on its channel instead of
+        // re-initing the driver or starting the BruceSniffer AP
+        uint8_t primary = 0;
+        wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+        if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary > 0) {
+            for (size_t i = 0; i < sizeof(all_wifi_channels); i++) {
+                if (all_wifi_channels[i] == primary) {
+                    ch = i;
+                    break;
+                }
+            }
+        }
+    } else {
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-    // Configura o modo AP
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+        wifi_config_t wifi_config;
+        strlcpy((char *)wifi_config.ap.ssid, "BruceSniffer", sizeof(wifi_config.ap.ssid));
+        strlcpy((char *)wifi_config.ap.password, "brucenet", sizeof(wifi_config.ap.password));
+        wifi_config.ap.ssid_len = strlen("BruceSniffer");
+        wifi_config.ap.channel = 1;                   // Channel
+        wifi_config.ap.authmode = WIFI_AUTH_WPA2_PSK; // auth mode
+        wifi_config.ap.ssid_hidden = 1;               // 1 to hidden SSID, 0 to visivle
+        wifi_config.ap.max_connection = 2;            // Max connections
+        wifi_config.ap.beacon_interval = 100;         // beacon interval in ms
+
+        // Configura o modo AP
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
+    }
     esp_wifi_set_promiscuous(true);
     esp_wifi_set_promiscuous_rx_cb(sniffer);
-    wifi_second_chan_t secondCh = (wifi_second_chan_t)NULL;
-    esp_wifi_set_channel(all_wifi_channels[ch], secondCh);
+    if (!snifferWebUiActive) {
+        wifi_second_chan_t secondCh = (wifi_second_chan_t)NULL;
+        esp_wifi_set_channel(all_wifi_channels[ch], secondCh);
+    }
+    pushSnifferStatus(true);
 
     Serial.println("Sniffer started!");
     vTaskDelay(1000 / portTICK_RATE_MS);
@@ -1249,6 +1334,7 @@ void sniffer_setup() {
             if (ch >= sizeof(all_wifi_channels)) ch = 0;
             wifi_second_chan_t secondCh = (wifi_second_chan_t)NULL;
             esp_wifi_set_channel(all_wifi_channels[ch], secondCh);
+            pushSnifferStatus(true); // WebUI AP follows the channel; tell the browser
             redraw = true;
             vTaskDelay(50 / portTICK_RATE_MS);
             esp_wifi_set_promiscuous(true);
@@ -1287,6 +1373,7 @@ void sniffer_setup() {
             else ch--; // decrease channel
             wifi_second_chan_t secondCh = (wifi_second_chan_t)NULL;
             esp_wifi_set_channel(all_wifi_channels[ch], secondCh);
+            pushSnifferStatus(true); // WebUI AP follows the channel; tell the browser
             redraw = true;
             vTaskDelay(50 / portTICK_PERIOD_MS);
             esp_wifi_set_promiscuous(true);
@@ -1330,6 +1417,7 @@ void sniffer_setup() {
                                                 sniffer_set_mode(SnifferMode::DeauthOnly);
                                             }});
                      loopOptions(modeOptions, MENU_TYPE_SUBMENU, "Capture Mode");
+                     pushSnifferStatus(true); // mode changed — refresh the browser's status
                      redraw = true;
                  }                                                                                        },
                 {deauth ? "Disable deauth attack" : "Enable deauth attack", [&]() { deauth = !deauth; }   },
@@ -1463,14 +1551,17 @@ void sniffer_setup() {
     }
 Exit:
     esp_wifi_set_promiscuous(false);
-    esp_wifi_stop();
+    // With the WebUI alive, esp_wifi_stop()/wifiDisconnect() would kill its AP
+    // and the browser connection — only leave promiscuous mode there
+    if (!snifferWebUiActive) { esp_wifi_stop(); }
     esp_wifi_set_promiscuous_rx_cb(NULL);
     // DO NOT call esp_wifi_deinit() here - let wifi_common.h handle it
     sniffer_wait_for_flush(1000);
     closeRawFile();
     closeDeauthFile();
-    wifiDisconnect();
+    if (!snifferWebUiActive) { wifiDisconnect(); }
     vTaskDelay(1 / portTICK_RATE_MS);
+    pushSnifferStatus(false);
 }
 
 void setHandshakeSniffer() {

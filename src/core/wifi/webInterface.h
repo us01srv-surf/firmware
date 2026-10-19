@@ -25,3 +25,10 @@ void configureWebServer();
 void startWebUi(bool mode_ap = false);
 void stopWebUi();
 void cleanlyStopWebUiForWiFiFeature();
+
+// WebSocket stream of sniffer/BLE frames to the WebUI browser (endpoint /ws)
+bool wsClientConnected();
+void wsBroadcastJson(const String &json);
+// Called by sniffer.cpp on start/stop/channel change: updates + broadcasts
+// the {"t":"status",...} object.
+void wsSetSnifferState(bool active, const String &mode, int chan);

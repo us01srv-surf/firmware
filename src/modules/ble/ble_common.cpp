@@ -3,9 +3,11 @@
 #include "core/radio_mem.h"
 #include "core/ram_profile.h"
 #include "core/utils.h"
+#include "core/wifi/webInterface.h" // wsClientConnected / wsBroadcastJson
 #include "core/wifi/wifi_common.h"
 #include "esp_mac.h"
 #include "modules/badusb_ble/ducky_typer.h"
+#include <map>
 #if !defined(LITE_VERSION)
 #include "BLE_Suite.h"
 #endif
@@ -80,7 +82,65 @@ void ble_info(const String &name, const String &address, const String &signal) {
     }
 }
 
-class AdvertisedDeviceCallbacks : public NimBLEScanCallbacks {};
+// Live delivery of scan results to the WebUI browser (/ws): per-address
+// cooldown >=5s plus a global cap of ~20 msg/s (beyond that frames are dropped)
+static std::map<uint64_t, uint32_t> bleWsLastSent; // packed addr -> millis
+static uint32_t bleWsWindowStart = 0;
+static uint8_t bleWsWindowCount = 0;
+
+static String bleLowerHex(const uint8_t *data, size_t len) {
+    static const char digits[] = "0123456789abcdef";
+    String out;
+    out.reserve(len * 2);
+    for (size_t i = 0; i < len; i++) {
+        out += digits[data[i] >> 4];
+        out += digits[data[i] & 0x0F];
+    }
+    return out;
+}
+
+class AdvertisedDeviceCallbacks : public NimBLEScanCallbacks {
+    // fires from the NimBLE host task while getResults() blocks, so ads
+    // reach the browser during the scan instead of after it
+    void onResult(const NimBLEAdvertisedDevice *dev) override {
+        if (!dev || !wsClientConnected()) { return; }
+        uint32_t now = millis();
+        if (now - bleWsWindowStart >= 1000) {
+            bleWsWindowStart = now;
+            bleWsWindowCount = 0;
+        }
+        if (bleWsWindowCount >= 20) { return; }
+        const uint8_t *addr = dev->getAddress().getVal();
+        uint64_t key = 0;
+        for (int i = 0; i < 6; i++) { key = (key << 8) | addr[i]; }
+        auto it = bleWsLastSent.find(key);
+        if (it != bleWsLastSent.end() && (now - it->second) < 5000) { return; }
+        if (bleWsLastSent.size() > 128) { bleWsLastSent.clear(); } // bound memory in dense RF
+        bleWsLastSent[key] = now;
+        bleWsWindowCount++;
+
+        char mac[18];
+        snprintf(
+            mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x", addr[0], addr[1], addr[2], addr[3],
+            addr[4], addr[5]
+        );
+        std::string name = dev->getName();
+        String json = "{\"t\":\"ble\",\"ts\":";
+        json += String(now);
+        json += ",\"addr\":\"";
+        json += mac;
+        json += "\",\"name\":\"";
+        for (char c : name) { json += (c < 0x20 || c > 0x7E || c == '"' || c == '\\') ? ' ' : c; }
+        json += "\",\"rssi\":";
+        json += String((int)dev->getRSSI());
+        json += ",\"chan\":0"; // NimBLE-Arduino 2.5 exposes no rx channel
+        json += ",\"data\":\"";
+        const std::vector<uint8_t> &payload = dev->getPayload();
+        json += bleLowerHex(payload.data(), payload.size());
+        json += "\"}";
+        wsBroadcastJson(json);
+    }
+};
 
 static AdvertisedDeviceCallbacks g_scanCallbacks;
 

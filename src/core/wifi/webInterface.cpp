@@ -29,6 +29,65 @@ const char *host = "bruce";
 String uploadFolder = "";
 static bool mdnsRunning = false;
 
+// /ws stream of sniffer/BLE frames. Heap-allocated: the server takes
+// ownership of handlers (unique_ptr) and deletes it in ~AsyncWebServer
+// (stopWebUi), so the pointer is nulled there and re-created on next start.
+static AsyncWebSocket *ws = nullptr;
+
+bool wsClientConnected() {
+    return ws && server && isWebUIActive && ws->count() > 0;
+}
+
+void wsBroadcastJson(const String &json) {
+    if (!wsClientConnected()) { return; }
+    ws->cleanupClients();
+    // availableForWriteAll() is false when any client's queue is full: drop
+    // the frame instead of closing the browser's only connection
+    if (!ws->availableForWriteAll()) { return; }
+    ws->textAll(json);
+}
+
+// Extracts the BRUCESESSION token from the request's Cookie header, or "".
+static String webSessionToken(AsyncWebServerRequest *request) {
+    if (!request->hasHeader("Cookie")) { return ""; }
+    String c = request->getHeader("Cookie")->value();
+    int idx = c.indexOf("BRUCESESSION=");
+    if (idx == -1) { return ""; }
+    int start = idx + 13;
+    int end = c.indexOf(';', start);
+    if (end == -1) end = c.length();
+    return c.substring(start, end);
+}
+
+// Sniffer pushes its state here on start/stop/channel change so the /ws
+// on-connect status object is accurate (sniffer.cpp owns the real state).
+static bool wsSnifferActive = false;
+static String wsSnifferMode = "idle";
+static int wsSnifferChan = 0;
+
+static String wsStatusJson() {
+    // strip chars that would break JSON (AP ssid is user-configurable)
+    String ssid = WiFi.softAPSSID();
+    for (size_t i = 0; i < ssid.length(); i++) {
+        char c = ssid[i];
+        if (c < 0x20 || c == '"' || c == '\\') ssid.setCharAt(i, ' ');
+    }
+    char buf[224];
+    snprintf(
+        buf, sizeof(buf),
+        "{\"t\":\"status\",\"v\":1,\"sniffer\":%s,\"mode\":\"%s\",\"chan\":%d,\"ssid\":\"%s\"}",
+        wsSnifferActive ? "true" : "false", wsSnifferMode.c_str(), wsSnifferChan, ssid.c_str()
+    );
+    return String(buf);
+}
+
+void wsSetSnifferState(bool active, const String &mode, int chan) {
+    wsSnifferActive = active;
+    wsSnifferMode = mode;
+    wsSnifferChan = chan;
+    wsBroadcastJson(wsStatusJson());
+}
+
 // Generate random token
 String generateToken(int length = 24) {
     String token = "";
@@ -45,6 +104,7 @@ void stopWebUi() {
     tft.setLogging(false);
     isWebUIActive = false;
     server->end();
+    ws = nullptr; // deleted by ~AsyncWebServer via the handler list
     server->~AsyncWebServer();
     free(server);
     server = nullptr;
@@ -169,18 +229,8 @@ String listFiles(FS &fs, const String &folder) {
 ** httpapitoken OR is authenticated by username and password
 **********************************************************************/
 bool checkUserWebAuth(AsyncWebServerRequest *request, bool onFailureReturnLoginPage = false) {
-    if (request->hasHeader("Cookie")) {
-        const AsyncWebHeader *cookie = request->getHeader("Cookie");
-        String c = cookie->value();
-        int idx = c.indexOf("BRUCESESSION=");
-        if (idx != -1) {
-            int start = idx + 13;
-            int end = c.indexOf(';', start);
-            if (end == -1) end = c.length();
-            String token = c.substring(start, end);
-            if (bruceConfig.isValidWebUISession(token)) { return true; }
-        }
-    }
+    String token = webSessionToken(request);
+    if (token.length() && bruceConfig.isValidWebUISession(token)) { return true; }
     if (onFailureReturnLoginPage) {
         serveWebUIFile(request, "login.html", "text/html", true, login_html, login_html_size);
     } else {
@@ -793,6 +843,38 @@ void configureWebServer() {
             );
         }
     });
+    // /ws — auth happens at handshake time: returning false makes the
+    // library answer 401 and never upgrade the connection
+    ws = new AsyncWebSocket("/ws");
+    ws->handleHandshake([](AsyncWebServerRequest *request) {
+        String token = webSessionToken(request);
+        return token.length() && bruceConfig.isValidWebUISession(token);
+    });
+    ws->onEvent([](
+                    AsyncWebSocket *srv, AsyncWebSocketClient *client, AwsEventType type, void *arg,
+                    uint8_t *data, size_t len
+                ) {
+        switch (type) {
+            case WS_EVT_CONNECT:
+                srv->cleanupClients();
+                // streaming may outpace a slow browser: discard frames instead
+                // of having the library close the connection
+                client->setCloseClientOnQueueFull(false);
+                client->text(wsStatusJson());
+                break;
+            case WS_EVT_DATA:
+            {
+                AwsFrameInfo *info = (AwsFrameInfo *)arg;
+                if (info->opcode == WS_TEXT && info->final && info->index == 0 && info->len == len) {
+                    data[len] = 0; // fork restores this byte after the handler returns
+                    if (strstr((char *)data, "\"cmd\":\"ping\"")) { client->text("{\"t\":\"pong\"}"); }
+                }
+                break;
+            }
+            default: break;
+        }
+    });
+    server->addHandler(ws);
     server->begin();
     Serial.println("Webserver started");
 }
