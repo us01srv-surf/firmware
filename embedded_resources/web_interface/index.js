@@ -1078,6 +1078,13 @@ $(".dialog-background").addEventListener("click", async (e) => {
   }
 });
 
+// bottom-nav Home/Files jump to their section (buttons, not links, so the
+// history/URL state that ?drive= ?edit= rely on is untouched)
+$(".mobile-nav").addEventListener("click", (e) => {
+  let jump = e.target.closest("[data-jump]");
+  if (jump) document.querySelector(jump.dataset.jump)?.scrollIntoView();
+});
+
 $(".act-save-oinput-file").addEventListener("click", async (e) => {
   let dialog = $(".dialog.oinput");
   let fileInput = $("#oinput-input");

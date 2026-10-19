@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>Bruce</title>
     <link rel="stylesheet" href="/index.css" />
     <link rel="stylesheet" href="/theme.css" />
@@ -31,10 +34,27 @@
           </button>
         </div>
       </div>
-      <nav class="mobile-nav" aria-label="Main menu">
-        <button class="btn-action act-oinput" data-action="serial">
-          Serial Cmd
+      <!-- phone home screen: one big tile per function (shown on small screens) -->
+      <div class="launcher" id="launcher" aria-label="Main menu">
+        <button class="btn-action tile" onclick="openNavigator()">
+          Navigator<span class="tile-hint">Remote control</span>
         </button>
+        <button class="btn-action tile" onclick="Dialog.show('settings')">
+          Settings<span class="tile-hint">WiFi AP &amp; reboot</span>
+        </button>
+        <button class="btn-action tile act-oinput" data-action="serial">
+          Serial Cmd<span class="tile-hint">Run a command</span>
+        </button>
+        <button
+          class="btn-action tile"
+          onclick="window.location.href = '/logout'"
+        >
+          Log Out<span class="tile-hint">End this session</span>
+        </button>
+      </div>
+      <nav class="mobile-nav" aria-label="Main menu">
+        <button class="btn-action" data-jump="#launcher">Home</button>
+        <button class="btn-action" data-jump="#files">Files</button>
         <button class="btn-action" onclick="openNavigator()">Navigator</button>
         <button class="btn-action" onclick="Dialog.show('settings')">
           Settings
@@ -43,20 +63,20 @@
           Log Out
         </button>
       </nav>
-      <div class="free-space">
+      <div class="free-space" id="files">
         <span
           class="btn-action act-browse block-space free-sd"
           data-path="/"
           data-drive="SD"
         >
-          SDCard [<span>0 MB</span>]
+          SDCard <span class="drive-usage">0 MB</span>
         </span>
         <span
           class="btn-action act-browse block-space free-fs"
           data-path="/"
           data-drive="LittleFS"
         >
-          LittleFS [<span>0 MB</span>]
+          LittleFS <span class="drive-usage">0 MB</span>
         </span>
       </div>
       <div class="action-content">

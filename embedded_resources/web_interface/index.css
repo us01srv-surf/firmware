@@ -208,6 +208,8 @@ svg > path {
   justify-content: center;
   align-items: center;
   padding: 10px;
+  /* above the fixed bottom nav; loading/upload overlays stack higher still */
+  z-index: 40;
 }
 .dialog {
   border: 1px solid var(--color);
@@ -460,6 +462,7 @@ svg > path {
   display: flex;
   justify-content: center;
   align-items: center;
+  z-index: 50;
 }
 .upload-area::before {
   content: "Drop files here to upload them to current folder";
@@ -570,6 +573,60 @@ button {
   background-color: var(--background);
 }
 
+/* --- phone launcher tiles: hidden on desktop, header already has these actions --- */
+.launcher {
+  display: none;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 76px;
+  padding: 12px;
+  font-size: 15px;
+  text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tile-hint {
+  font-size: 11px;
+  opacity: 0.65;
+}
+/* keep hints from picking up their own background in the btn-action > * hover rule */
+.btn-action.tile:hover .tile-hint,
+.btn-action.tile:active .tile-hint {
+  background: transparent;
+  color: inherit;
+}
+/* brackets keep the desktop look without wrapping the usage on phones */
+.drive-usage::before {
+  content: "[";
+}
+.drive-usage::after {
+  content: "]";
+}
+
+.btn-action,
+.icon-action,
+.nav {
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease,
+    fill 0.1s ease,
+    stroke 0.1s ease;
+}
+:focus-visible {
+  outline: 2px solid var(--color);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 /* bottom action bar, shown on small screens only */
 .mobile-nav {
   display: none;
@@ -607,8 +664,8 @@ button {
 @media (max-width: 600px) {
   body {
     padding: 6px;
-    /* room for the fixed bottom nav */
-    padding-bottom: 64px;
+    /* room for the fixed bottom nav + home-indicator inset */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     font-size: 14px;
   }
   .container .header {
@@ -618,10 +675,18 @@ button {
     flex: 1 1 100%;
     padding: 12px;
   }
-  /* header actions move into the bottom nav on small screens */
+  /* header actions move into the launcher + bottom nav on small screens */
   .left-part,
   .right-part {
     display: none;
+  }
+  /* home screen: big tap tile for every function */
+  .launcher {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid var(--color);
   }
   .mobile-nav {
     display: flex;
@@ -629,17 +694,26 @@ button {
     left: 0;
     right: 0;
     bottom: 0;
-    gap: 6px;
+    gap: 4px;
     padding: 6px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
     background-color: var(--background);
     border-top: 1px solid var(--color);
+    z-index: 30;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .mobile-nav .btn-action {
     flex: 1;
-    min-height: 44px;
+    min-width: 0;
+    min-height: 48px;
     padding: 4px 2px;
-    font-size: 12px;
+    font-size: 10px;
     white-space: nowrap;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .container .free-space {
     flex-direction: column;
@@ -648,11 +722,23 @@ button {
     width: 100%;
     border-right: 0;
     border-bottom: 1px solid var(--color);
-    padding: 12px 10px;
-    min-height: 44px;
+    padding: 14px 10px;
+    min-height: 56px;
+    text-align: left;
   }
   .container .free-space .block-space:last-child {
     border-bottom: 0;
+  }
+  /* usage reads as a second line under the drive name; no brackets on phones */
+  .drive-usage {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.65;
+  }
+  .drive-usage::before,
+  .drive-usage::after {
+    content: none;
   }
   .container .action-content {
     flex-wrap: wrap;
@@ -690,10 +776,37 @@ button {
   .container .content .table .col-size {
     width: 80px;
   }
+  /* dialogs become full-screen panels on phones instead of small pop-ups */
+  .dialog-background {
+    padding: 0;
+  }
   .dialog {
+    position: fixed;
+    inset: 0;
     min-width: 0;
     max-width: none;
     width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .dialog .dialog-head {
+    flex: 0 0 auto;
+    padding: 12px 10px;
+    font-size: 16px;
+  }
+  .dialog .dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .dialog .dialog-footer {
+    flex: 0 0 auto;
   }
   .dialog .dialog-body input,
   .dialog .dialog-body select {
@@ -706,13 +819,22 @@ button {
   .dialog .dialog-footer .btn-action {
     display: block;
     width: 100%;
-    min-height: 44px;
+    min-height: 48px;
     margin-top: 0;
   }
   .dialog .dialog-footer .btn-action + .btn-action {
     margin-top: 8px;
   }
   /* editor is fullscreen with a fixed-height body — keep its footer in one row */
+  .dialog.editor .dialog-body {
+    height: auto;
+    padding: 0;
+    overflow: hidden;
+  }
+  .dialog.editor .editor-container,
+  .dialog.editor .file-content {
+    font-size: 16px;
+  }
   .dialog.editor .dialog-footer {
     display: flex;
     gap: 8px;
@@ -721,31 +843,55 @@ button {
     flex: 1;
     margin-top: 0;
   }
+  .dialog.settings .dialog-body {
+    gap: 10px;
+  }
   .dialog.settings .dialog-body .btn-action {
-    padding: 12px 8px;
-    min-height: 44px;
+    padding: 16px 12px;
+    min-height: 56px;
+    font-size: 15px;
+    text-align: left;
   }
   .dialog.navigator .dialog-head {
     flex-wrap: wrap;
   }
+  /* full-height panel: stack screen + pad tightly instead of stretching lines */
+  .dialog.navigator .dialog-body {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  .dialog.navigator .dialog-head div {
+    width: 100%;
+  }
   .dialog.navigator .dialog-head select {
-    font-size: 12px;
-    min-height: 40px;
-    padding: 4px;
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    min-height: 44px;
+    padding: 6px;
+  }
+  .dialog.navigator #navigator-screen {
+    max-width: 100%;
+    height: auto;
+    image-rendering: pixelated;
   }
   .dialog.navigator .navigator-canvas .nav {
-    width: 46px;
-    height: 46px;
+    width: 54px;
+    height: 54px;
   }
   #force-reload,
   #refresh-folder {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
   }
   #force-reload svg,
   #refresh-folder svg {
     width: 22px;
     height: 22px;
+  }
+  .dialog.upload .dialog-body {
+    max-height: none;
   }
   .dialog.upload .upload-loading {
     width: 100%;
