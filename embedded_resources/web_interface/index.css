@@ -250,7 +250,7 @@ svg > path {
   text-align: right;
 }
 .dialog.navigator {
-  max-width: 500px;
+  max-width: 560px;
 }
 .dialog.navigator .dialog-head {
   display: flex;
@@ -289,8 +289,8 @@ svg > path {
   gap: 1px;
 }
 .dialog.navigator .navigator-canvas .nav {
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   border-radius: 3px;
   padding: 0;
   display: flex;
@@ -852,14 +852,11 @@ button {
     font-size: 15px;
     text-align: left;
   }
+  /* --- Navigator: full-screen remote. Screen on top, everything you tap
+     lives in the lower half of the panel where a thumb reaches --- */
   .dialog.navigator .dialog-head {
     flex-wrap: wrap;
-  }
-  /* full-height panel: stack screen + pad tightly instead of stretching lines */
-  .dialog.navigator .dialog-body {
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    padding-bottom: 8px;
   }
   .dialog.navigator .dialog-head div {
     width: 100%;
@@ -867,23 +864,84 @@ button {
   .dialog.navigator .dialog-head select {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
-    min-height: 44px;
+    font-size: 14px;
+    min-height: 48px;
     padding: 6px;
   }
+  .dialog.navigator .dialog-body {
+    flex-direction: column;
+    /* the desktop rule wraps; in a column that would spill the pad into a
+       second column beside the screen as soon as content gets taller */
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+  }
+  /* children never shrink: a squeezed canvas would stretch the bitmap and a
+     squeezed pad would clip its buttons, so both stay at their natural size
+     and the body scrolls instead */
+  .dialog.navigator .dialog-body > * {
+    flex: 0 0 auto;
+    max-width: 100%;
+  }
   .dialog.navigator #navigator-screen {
+    width: 100%;
     max-width: 100%;
     height: auto;
     image-rendering: pixelated;
   }
+  .dialog.navigator .navigator-canvas {
+    /* pinned to the bottom edge of the panel (and kept visible while the
+       screen above it scrolls) so the pad is always under the thumb */
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin-top: auto;
+    padding: 6px 0;
+    background-color: var(--background);
+  }
   .dialog.navigator .navigator-canvas .nav {
-    width: 54px;
-    height: 54px;
+    width: clamp(64px, 21vw, 88px);
+    height: clamp(64px, 21vw, 88px);
+    flex: 0 0 auto;
+  }
+  .dialog.navigator .navigator-canvas .nav svg {
+    width: 34px;
+    height: 34px;
+  }
+  .dialog.navigator .navigator-canvas .nav.nav-ok:before {
+    width: 30px;
+    height: 30px;
+  }
+  .dialog.navigator .dialog-footer {
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+  }
+  .dialog.navigator .dialog-footer .btn-action {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-top: 0;
+    min-height: 56px;
+    padding: 4px;
+    font-size: 14px;
+  }
+  .dialog.navigator .dialog-footer .btn-action svg {
+    display: block;
+    margin: auto;
   }
   #force-reload,
   #refresh-folder {
     width: 44px;
     height: 44px;
+  }
+  /* navigator reload sits in the footer next to the other 56px actions */
+  #force-reload {
+    flex: 0 0 56px;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--color);
   }
   #force-reload svg,
   #refresh-folder svg {
@@ -906,6 +964,38 @@ button {
   .loading-area .text {
     min-width: 0;
     max-width: 90vw;
+  }
+
+  /* --- dialog audit (360/390): nothing overflows sideways, nothing is
+     smaller than a comfortable tap --- */
+  /* upload panel claims its own max-width/height above the generic full-screen
+     rule (higher specificity), so re-state full-viewport here */
+  .dialog.upload {
+    max-width: none;
+    max-height: none;
+  }
+  /* long titles/filenames shrink with an ellipsis instead of pushing the
+     head wider than the screen */
+  .dialog .dialog-head > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* text links inside a dialog become proper tap targets */
+  .dialog .dialog-body a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 8px;
+    margin: 2px -8px;
+  }
+  /* header title opens the Info dialog, so it counts as a tap target too */
+  .container .header .title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
   }
 }
 
